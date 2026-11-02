@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Rustgevend Mahjong Solitaire</title>
+    <style>
+        :root {
+            --bg-color: #12181f;
+            --panel-bg: #1c2530;
+            --text-color: #ffffff;
+            --accent-color: #2563eb;
+            --tile-bg: #ffffff;
+            --tile-border: #000000;
+            --tile-text: #000000;
+            --tile-selected: #fef08a;
+            --tile-blocked: #94a3b8;
+        }
+
+        body.theme-wood {
+            --bg-color: #2b1d11;
+            --panel-bg: #3c2a1a;
+            --tile-bg: #fffbeb;
+            --tile-border: #451a03;
+            --tile-text: #000000;
+            --tile-selected: #fef08a;
+            --tile-blocked: #a1a1aa;
+        }
+
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: system-ui, -apple-system, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        header {
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 16px;
+            background-color: var(--panel-bg);
+            border-bottom: 2px solid rgba(255,255,255,0.2);
+        }
+
+        h1 {
+            font-size: 1.3rem;
+            margin: 0;
+            font-weight: bold;
+        }
+
+        .stats {
+            display: flex;
+            gap: 16px;
+            font-size: 1.1rem;
+            font-weight: bold;
+        }
+
+        .controls {
+            width: 100%;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            padding: 10px 12px;
+            background-color: var(--panel-bg);
+            justify-content: center;
+        }
+
+        button, select {
+            background-color: var(--accent-color);
+            color: white;
+            border: none;
+            padding: 10px 14px;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        select {
+            background-color: #334155;
+            color: white;
+        }
+
+        #game-container {
+            position: relative;
+            flex-grow: 1;
+            width: 100%;
+            max-width: 100vw;
+            height: 75vh;
+            overflow: auto;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 10px;
+        }
+
+        #board {
+            position: relative;
+            width: 820px;
+            height: 520px;
+            transform-origin: center center;
+        }
+
+        .tile {
+            position: absolute;
+            width: 60px;
+            height: 80px;
+            background-color: var(--tile-bg);
+            border: 3px solid var(--tile-border);
+            border-radius: 8px;
+            box-shadow: 4px 6px 0px rgba(0, 0, 0, 0.6);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            font-size: 42px;
+            color: var(--tile-text);
+            font-weight: bold;
+        }
+
+        .tile.selected {
+            background-color: var(--tile-selected) !important;
+            border-color: #dc2626;
+            border-width: 4px;
+            transform: translateY(-6px);
+            box-shadow: 6px 10px 8px rgba(0,0,0,0.5);
+        }
+
+        .tile.blocked {
+            background-color: var(--tile-blocked);
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        #modal {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.8);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+        }
+
+        .modal-content {
+            background-color: var(--panel-bg);
+            padding: 24px;
+            border-radius: 12px;
+            text-align: center;
+            max-width: 320px;
+            width: 90%;
+        }
+
+        @media (max-width: 600px) {
+            #board {
+                transform: scale(0.85);
+            }
+        }
+    </style>
+</head>
+<body class="theme-slate">
+
+    <header>
+        <h1>Mahjong Solitaire</h1>
+        <div class="stats">
+            <div>Stenen: <span id="tiles-left">0</span></div>
+            <div>Tijd: <span id="timer">00:00</span></div>
+        </div>
+    </header>
+
+    <div class="controls">
+        <select id="layout-select" aria-label="Kies bord-indeling">
+            <option value="turtle">Schildpad</option>
+            <option value="pyramid">Piramide</option>
+            <option value="arena">Arena</option>
+        </select>
+        <button id="btn-undo">Terug</button>
+        <button id="btn-hint">Hint</button>
+        <button id="btn-shuffle">Schudden</button>
+        <button id="btn-restart">Opnieuw</button>
+    </div>
+
+    <div id="game-container">
+        <div id="board"></div>
+    </div>
+
+    <div id="modal">
+        <div class="modal-content">
+            <h2 id="modal-title">Gefeliciteerd!</h2>
+            <p id="modal-text">Je hebt het bord opgelost.</p>
+            <button id="btn-modal-restart" style="margin-top: 12px; width: 100%;">Nieuw Spel</button>
+        </div>
+    </div>
+
+    <script>
+        const suits = {
+            dots: ['🀙','🀚','🀛','🀜','🀝','🀞','🀟','🀠','🀡'],
+            bamboos: ['🀐','🀑','🀒','🀓','🀔','🀕','🀖','🀗','🀘'],
+            characters: ['🀇','🀈','🀉','🀊','🀋','🀌','🀍','🀎','🀏'],
+            winds: ['🀀','🀁','🀂','🀃'],
+            dragons: ['🀄','🀅','🀆'],
+            seasons: ['🀢','🀣','🀤','🀥'],
+            flowers: ['🀦','🀧','🀨','🀩']
+        };
+
+        let tiles = [];
+        let history = [];
+        let selectedTile = null;
+        let timerInterval = null;
+        let secondsElapsed = 0;
+        let gameActive = false;
+
+        const boardEl = document.getElementById('board');
+        const tilesLeftEl = document.getElementById('tiles-left');
+        const timerEl = document.getElementById('timer');
+        const modalEl = document.getElementById('modal');
+        const modalTitleEl = document.getElementById('modal-title');
+        const modalTextEl = document.getElementById('modal-text');
+
+        function generateTurtleLayout() {
+            let coords = [];
+            for (let y = 0; y < 6; y++) {
+                for (let x = 1; x < 11; x++) {
+                    coords.push({x: x * 2, y: y * 2, z: 0});
+                }
+            }
+            for (let y = 1; y < 5; y++) {
+                for (let x = 2; x < 10; x++) {
+                    coords.push({x: x * 2, y: y * 2, z: 1});
+                }
+            }
+            for (let y = 2; y < 4; y++) {
+                for (let x = 4; x < 8; x++) {
+                    coords.push({x: x * 2, y: y * 2, z: 2});
+                }
+            }
+            coords.push({x: 12, y: 5, z: 3});
+            return coords;
+        }
+
+        function generatePyramidLayout() {
+            let coords = [];
+            for (let z = 0; z < 4; z++) {
+                let size = 4 - z;
+                let startX = 4 + z;
+                let startY = 2 + z;
+                for (let y = 0; y < size; y++) {
+                    for (let x = 0; x < size; x++) {
+                        coords.push({x: (startX + x) * 2, y: (startY + y) * 2, z: z});
+                    }
+                }
+            }
+            return coords;
+        }
+
+        function generateArenaLayout() {
+            let coords = [];
+            for (let z = 0; z < 2; z++) {
+                let inset = z * 2;
+                for (let x = inset; x < 12 - inset; x++) {
+                    coords.push({x: x * 2, y: inset * 2, z: z});
+                    coords.push({x: x * 2, y: (8 - inset) * 2, z: z});
+                }
+            }
+            return coords;
+        }
+
+        function createTileDeck(totalCount) {
+            let deck = [];
+            let baseSymbols = [];
+            ['dots', 'bamboos', 'characters'].forEach(suit => {
+                suits[suit].forEach(sym => baseSymbols.push(sym, sym, sym, sym));
+            });
+            suits.winds.forEach(sym => baseSymbols.push(sym, sym, sym, sym));
+            suits.dragons.forEach(sym => baseSymbols.push(sym, sym, sym, sym));
+            suits.seasons.forEach(sym => baseSymbols.push(sym));
+            suits.flowers.forEach(sym => baseSymbols.push(sym));
+
+            baseSymbols.sort(() => Math.random() - 0.5);
+            
+            while(deck.length < totalCount && baseSymbols.length > 0) {
+                deck.push(baseSymbols.pop());
+            }
+            while(deck.length < totalCount) {
+                let randSym = suits.dots[Math.floor(Math.random() * suits.dots.length)];
+                deck.push(randSym, randSym);
+            }
+            return deck.sort(() => Math.random() - 0.5);
+        }
+
+        function initGame() {
+            clearInterval(timerInterval);
+            secondsElapsed = 0;
+            timerEl.textContent = "00:00";
+            timerInterval = setInterval(() => {
+                secondsElapsed++;
+                let mins = String(Math.floor(secondsElapsed / 60)).padStart(2, '0');
+                let secs = String(secondsElapsed % 60).padStart(2, '0');
+                timerEl.textContent = `${mins}:${secs}`;
+            }, 1000);
+
+            gameActive = true;
+            selectedTile = null;
+            history = [];
+            modalEl.style.display = 'none';
+
+            let layoutName = document.getElementById('layout-select').value;
+            let coords = layoutName === 'pyramid' ? generatePyramidLayout() :
+                         layoutName === 'arena' ? generateArenaLayout() : generateTurtleLayout();
+
+            if (coords.length % 2 !== 0) coords.pop();
+
+            let symbols = createTileDeck(coords.length);
+
+            tiles = coords.map((c, index) => ({
+                id: index,
+                x: c.x,
+                y: c.y,
+                z: c.z,
+                symbol: symbols[index],
+                matched: false
+            }));
+
+            renderBoard();
+            updateStats();
+        }
+
+        function renderBoard() {
+            boardEl.innerHTML = '';
+            
+            let sortedTiles = [...tiles].filter(t => !t.matched).sort((a, b) => {
+                if (a.z !== b.z) return a.z - b.z;
+                if (a.y !== b.y) return a.y - b.y;
+                return a.x - b.x;
+            });
+
+            sortedTiles.forEach(tile => {
+                const el = document.createElement('div');
+                el.className = 'tile';
+                if (selectedTile && selectedTile.id === tile.id) {
+                    el.classList.add('selected');
+                }
+                if (!isTileFree(tile)) {
+                    el.classList.add('blocked');
+                }
+
+                el.style.left = `${tile.x * 28 + (tile.z * 5)}px`;
+                el.style.top = `${tile.y * 28 - (tile.z * 5)}px`;
+                el.style.zIndex = tile.z * 10 + tile.y;
+                el.textContent = tile.symbol;
+
+                el.addEventListener('click', () => handleTileClick(tile));
+                boardEl.appendChild(el);
+            });
+        }
+
+        function isTileFree(tile) {
+            if (tile.matched) return false;
+
+            let hasTileAbove = tiles.some(t => 
+                !t.matched && t.z === tile.z + 1 &&
+                Math.abs(t.x - tile.x) < 2 &&
+                Math.abs(t.y - tile.y) < 2
+            );
+            if (hasTileAbove) return false;
+
+            let hasLeft = tiles.some(t => !t.matched && t.z === tile.z && t.y === tile.y && t.x === tile.x - 2);
+            let hasRight = tiles.some(t => !t.matched && t.z === tile.z && t.y === tile.y && t.x === tile.x + 2);
+
+            return !(hasLeft && hasRight);
+        }
+
+        function handleTileClick(tile) {
+            if (!gameActive || tile.matched || !isTileFree(tile)) return;
+
+            if (!selectedTile) {
+                selectedTile = tile;
+            } else if (selectedTile.id === tile.id) {
+                selectedTile = null;
+            } else {
+                if (isMatch(selectedTile, tile)) {
+                    history.push({type: 'match', t1: selectedTile, t2: tile});
+                    selectedTile.matched = true;
+                    tile.matched = true;
+                    selectedTile = null;
+                    
+                    updateStats();
+                    checkWinLoss();
+                } else {
+                    selectedTile = tile;
+                }
+            }
+            renderBoard();
+        }
+
+        function isMatch(t1, t2) {
+            if (t1.symbol === t2.symbol) return true;
+            if (suits.seasons.includes(t1.symbol) && suits.seasons.includes(t2.symbol)) return true;
+            if (suits.flowers.includes(t1.symbol) && suits.flowers.includes(t2.symbol)) return true;
+            return false;
+        }
+
+        function updateStats() {
+            let remaining = tiles.filter(t => !t.matched).length;
+            tilesLeftEl.textContent = remaining;
+        }
+
+        function checkWinLoss() {
+            let remaining = tiles.filter(t => !t.matched).length;
+            if (remaining === 0) {
+                clearInterval(timerInterval);
+                gameActive = false;
+                modalTitleEl.textContent = "Geweldig!";
+                modalTextEl.textContent = `Je hebt het bord opgelost in ${timerEl.textContent}!`;
+                modalEl.style.display = 'flex';
+                return;
+            }
+
+            let freeTiles = tiles.filter(t => !t.matched && isTileFree(t));
+            let hasMoves = false;
+            for (let i = 0; i < freeTiles.length; i++) {
+                for (let j = i + 1; j < freeTiles.length; j++) {
+                    if (isMatch(freeTiles[i], freeTiles[j])) {
+                        hasMoves = true;
+                        break;
+                    }
+                }
+                if (hasMoves) break;
+            }
+
+            if (!hasMoves) {
+                modalTitleEl.textContent = "Geen zetten meer";
+                modalTextEl.textContent = "Er zijn geen geldige paren meer vrij. Probeer te schudden!";
+                modalEl.style.display = 'flex';
+            }
+        }
+
+        document.getElementById('btn-undo').addEventListener('click', () => {
+            if (history.length === 0) return;
+            let lastAction = history.pop();
+            if (lastAction.type === 'match') {
+                lastAction.t1.matched = false;
+                lastAction.t2.matched = false;
+                selectedTile = null;
+                renderBoard();
+                updateStats();
+                modalEl.style.display = 'none';
+                gameActive = true;
+            }
+        });
+
+        document.getElementById('btn-hint').addEventListener('click', () => {
+            let freeTiles = tiles.filter(t => !t.matched && isTileFree(t));
+            for (let i = 0; i < freeTiles.length; i++) {
+                for (let j = i + 1; j < freeTiles.length; j++) {
+                    if (isMatch(freeTiles[i], freeTiles[j])) {
+                        selectedTile = freeTiles[i];
+                        renderBoard();
+                        return;
+                    }
+                }
+            }
+        });
+
+        document.getElementById('btn-shuffle').addEventListener('click', () => {
+            let unmatched = tiles.filter(t => !t.matched);
+            let symbols = unmatched.map(t => t.symbol);
+            symbols.sort(() => Math.random() - 0.5);
+            unmatched.forEach((t, idx) => {
+                t.symbol = symbols[idx];
+            });
+            selectedTile = null;
+            renderBoard();
+            modalEl.style.display = 'none';
+            gameActive = true;
+        });
+
+        document.getElementById('btn-restart').addEventListener('click', initGame);
+        document.getElementById('btn-modal-restart').addEventListener('click', initGame);
+        document.getElementById('layout-select').addEventListener('change', initGame);
+
+        initGame();
+    </script>
+</body>
+</html>
